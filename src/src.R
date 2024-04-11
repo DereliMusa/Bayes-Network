@@ -1,0 +1,274 @@
+# BiocManager paketini yükleyin (eğer yüklü değilse)
+'if (!requireNamespace("BiocManager", quietly = TRUE)) {
+  install.packages("BiocManager")
+}
+BiocManager::install(c("RBGL", "gRain"))
+install.packages(c("bnlearn", "lattice", "gridExtra", "Rgraphviz", "openxlsx", "dplyr", "ggplot2"))'
+
+# Kullanacağımız Kütüphaneler
+library(bnlearn)
+library(lattice)
+library(BiocManager)
+BiocManager::install(force = TRUE,
+                     c("RBGL","gRain", "Rgraphviz"))
+library(gridExtra)
+library(gRain)
+library(Rgraphviz)
+library(openxlsx)
+library(dplyr)
+library(ggplot2)
+  
+# Veri setini oku
+data <- read.xlsx("./data/bayesnet.xlsx")
+
+# Veri setinin ilk birkaç satırını görüntüle
+head(data)
+
+# Veri setinin boyutunu kontrol et
+dim(data)
+
+# Veri setinin yapısını (structure) incele
+str(data)
+
+# Faktör değişkenlerini oluştur
+factor_variables <- c("sex", "age", "urbanization", "education", "geographic_area", "allergy", "smoke", "sedentary", "asthma")
+data[factor_variables] <- lapply(data[factor_variables], as.factor)
+
+# Veri setinin yapısını (structure) tekrar incele
+str(data)
+
+# Değişken isimlerini düzenle
+new_names <- c("SEX", "AGE", "URB", "EDU", "GEO", "ALG", "SMK", "SED", "ASTHMA")
+names(data) <- new_names
+
+# Değişken isimlerini kontrol et
+names(data)
+
+# Veri seti içinde ASTHMA etiketinin dağılımlarını kontrol et
+table(data$ASTHMA)
+
+# Missing valuelerı kontrol et
+table(is.na.data.frame(data))
+
+
+# BAYESİAN NETWORKUN GRAF YAPISINI CIKART
+
+#1. Model based on the EXPERT SYSTEM approach
+graf<-empty.graph(node=c("SEX","AGE","URB","EDU","GEO","ALG","SMK","SED","ASTHMA"),num=1)
+kenar<-matrix(c("SEX","EDU",
+                "AGE","EDU",
+                "GEO","EDU",
+                "EDU","URB",
+                "URB","ALG",
+                "URB","SED",
+                "SMK","ASTHMA",
+                "ALG","ASTHMA",
+                "SED","ASTHMA"),
+              byrow=TRUE,ncol=2,
+              dimnames=list(NULL,c("from","to")))
+# Ağ yapısını graf'a ekle
+arcs(graf)<-kenar
+
+#graf'ın özelliklerini gösterelim
+graf
+
+# Ağdaki düğümleri göster
+nodes(graf)
+
+# Ağdaki bağlantıları göster
+arcs(graf)
+
+# graf'ın sınıfını göster
+class(graf)
+
+# graf'ın model dizesini göster
+modelstring(graf)
+
+# graf'ı görselleştir
+graphviz.plot(graf,main="expert system")
+
+#Network scorlarına bakarak modelim veriye uygunluğu ve karmaşıklığını değerlendirelim: İpucu, düşük olan iyidir.
+
+# BIC (Bayesian Information Criterion) skoru
+score_bic <- score(graf, data = data, type = "bic")
+
+# AIC (Akaike Information Criterion) skoru
+score_aic <- score(graf, data = data, type = "aic")
+
+#Skorlarımıza bakalım
+score_aic
+score_bic
+
+
+#2. Hill Climbing Algoritması Tabanlı Model
+
+#black list
+black_list<-matrix(c("EDU","ASTHMA",
+                     "ASTHMA","EDU",
+                     "ASTHMA","URB",
+                     "ASTHMA","SED",
+                     "ASTHMA","ALG",
+                     "ASTHMA","SMK",
+                     "SMK","SEX",
+                     "AGE","SEX",
+                     "GEO","SEX",
+                     "ALG","SEX",
+                     "URB","SEX",
+                     "EDU","SEX",
+                     "SED","SEX",
+                     "ASTHMA","SEX",
+                     "SMK","EDU",
+                     "ALG","EDU",
+                     "URB","EDU",
+                     "SED","EDU",
+                     "ASTHMA","EDU",
+                     "SMK","GEO",
+                     "AGE","GEO",
+                     "EDU","GEO",
+                     "ALG","GEO",
+                     "URB","GEO",
+                     "SEX","GEO",
+                     "SED","GEO",
+                     "ASTHMA","GEO",
+                     "SMK","AGE",
+                     "GEO","AGE",
+                     "EDU","AGE",
+                     "ALG","AGE",
+                     "URB","AGE",
+                     "SEX","AGE",
+                     "SED","AGE",
+                     "ASTHMA","AGE",
+                     "AGE","ALG",
+                     "EDU","ALG"),
+                   byrow=TRUE,ncol=2,
+                   dimnames=list(NULL,c("from","to")))
+#white list
+white_list<-matrix(c("ALG","ASTHMA",
+                     "SMK","ASTHMA",
+                     "SED","ASTHMA"),
+                   byrow=TRUE,ncol=2,
+                   dimnames=list(NULL,c("from","to")))
+
+#1: BIC
+learned<-hc(data,score="bic",whitelist=white_list,blacklist=black_list)
+graphviz.plot(learned,main="learned1 - hc with bic")
+modelstring(learned)
+learned
+score(learned,data=data,type="bic")
+nodes(learned)
+arcs(learned)
+
+#2: AIC
+learned3<-hc(data,score="aic",whitelist=white_list,blacklist=black_list)
+graphviz.plot(learned3,main="learned2 - hc with aic")
+modelstring(learned3)
+learned3
+score(learned3,data=data,type="aic")
+nodes(learned)
+arcs(learned)
+
+
+#Karşılaştırma: EXPERT SYSTEM vs HILL CLIMBING, tabanlı network scorları
+
+#BIC
+#expert system
+a<-score(graf,data=data,type="bic")
+#learned
+b<-score(learned,data=data,type="bic")
+bic<-c(a,b)
+names(bic)<-c("expert system","learned")
+bic
+
+#AIC
+#expert system
+c<-score(graf,data=data,type="aic")
+#learned3
+d<-score(learned,data=data,type="aic")
+aic<-c(c,d)
+names(aic)<-c("expert system","learned2")
+aic
+
+#best graphical model: garf based on the Expert System approach
+
+hlight<-list(nodes=nodes(graf),arcs=arcs(graf),col="blue",textCol="red",lwd=2,
+             fill=c("yellow"))
+grafo<-graphviz.plot(graf,highlight=hlight,main="Expert System Graph")
+
+#BAYESIAN NETWORKUN OLASILIK GOSTERIMI
+
+# Bayesian Network Model Fitting
+
+# Bayesian Network Model Fit (Method: Bayesian)
+bn.bayes <- bn.fit(graf, data = data, method = "bayes", iss = 8)
+
+# Bayesian Network Model
+bn.bayes
+
+# Örnek olarak URB değişkeninin olasılık dağılımını gösterme
+bn.bayes$URB
+
+# Değişken olasılık tablolarını bir liste olarak hazırlama
+kot <- list(
+  SEX = bn.bayes$SEX$prob,
+  AGE = bn.bayes$AGE$prob,
+  URB = bn.bayes$URB$prob,
+  EDU = bn.bayes$EDU$prob,
+  GEO = bn.bayes$GEO$prob,
+  ALG = bn.bayes$ALG$prob,
+  SMK = bn.bayes$SMK$prob,
+  SED = bn.bayes$SED$prob,
+  ASTHMA = bn.bayes$ASTHMA$prob
+)
+
+# Bayesian Network Model
+bn <- custom.fit(graf, kot)
+
+# Bayesian Network Model'in Sınıfı
+class(bn)
+
+# Modelin Parametre Sayısı
+nparams(bn)
+print(bn)
+
+# Modelin Düğümleri
+nodes(bn)
+
+# Modelin Bağlantıları
+arcs(bn)
+
+# Modelin dizesini göster
+modelstring(bn)
+
+# Örnek olarak, "URB" düğümünün koşullu olasılık tablosunu alalım
+cpt_URB <- cpt(bn, "URB")
+
+# Elde edilen koşullu olasılık tablosunu görüntüleyelim
+print(cpt_URB)
+
+kable(cpt_URB)
+
+# Modeli görselleştir
+graphviz.plot(bn,main="Bayesian Prob Model")
+
+# Örnek olarak URB değişkeninin olasılık dağılımını gösterme
+URB_prob <- bn.bayes$URB$prob
+print(URB_prob)
+
+# Düğümler için olasılık dağılımlarını etiketlerde gösterme
+bn.fit.barchart(bn, method = "color", probs = URB_prob, main = "Bayesian Prob Model")
+
+# Görselleştirme
+graphviz.plot(graph, main = "Bayesian Prob Model")
+
+print(EDU_prob <- bn.bayes$EDU$prob)
+
+# ASTHMA düğümünün olasılık dağılımını alın
+evet_prob <- cpquery(bn, event = (ASTHMA == "yes"), evidence = TRUE)
+
+hayir_prob <- cpquery(bn, event = (ASTHMA == "no"), evidence = TRUE)
+
+# Çubuk grafik oluşturma
+barplot(rbind(evet_prob, hayir_prob), beside = TRUE, names.arg = c("EVET", "HAYIR"), legend.text = c("ASTHMA == 'yes'", "ASTHMA == 'no'"), xlab = "ASTHMA", ylab = "Probability")
+
+# Örnek durumu tanımlayın 
+ornek <- list(SEX = "male", AGE = "adult", URB = "low", EDU = "low", GEO = "south/islands", ALG = "yes", SMK = "yes", SED = "yes")
